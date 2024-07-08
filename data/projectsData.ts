@@ -28,6 +28,12 @@ const projectsData: Project[] = [
     imgSrc: '/static/images/prgms.png',
     href: 'https://prgms.tistory.com/120',
   },
+  {
+    title: '호텔에삶 디자인시스템 구축',
+    description: `호텔에삶 디자인 시스템을 모노레포(mono repo) 방식으로 구현합니다. 디자인 시스템의 일관성 유지 및 재사용성을 극대화하기 위해, 다양한 UI 컴포넌트와 스타일 가이드를 단일 리포지토리에서 관리합니다.`,
+    imgSrc: '/static/images/travelmakers.png',
+    href: 'https://github.com/travelmakers/dash',
+  },
 ]
 
 export default projectsData

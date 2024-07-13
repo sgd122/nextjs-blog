@@ -6,7 +6,7 @@ const siteMetadata = {
   description: '',
   language: 'ko-KR',
   theme: 'system', // system, dark or light
-  siteUrl: 'https://sgd122.vercel.app/',
+  siteUrl: 'https://sgd122.vercel.app',
   siteRepo: 'https://github.com/sgd122/nextjs-blog',
   siteLogo: '/static/images/logo.png',
   socialBanner: '/static/images/twitter-card.png',

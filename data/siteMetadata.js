@@ -26,15 +26,15 @@ const siteMetadata = {
       // src: 'https://us.umami.is/script.js'
       // Remember to add 'us.umami.is' in `next.config.js` as a permitted domain for the CSP
     },
-    // plausibleAnalytics: {
-    //   plausibleDataDomain: '', // e.g. tailwind-nextjs-starter-blog.vercel.app
-    // },
+    plausibleAnalytics: {
+      plausibleDataDomain: 'sgd122.vercel.app', // e.g. tailwind-nextjs-starter-blog.vercel.app
+    },
+    googleAnalytics: {
+      googleAnalyticsId: 'G-CE9HK4KW10', // e.g. G-XXXXXXX
+    },
     // simpleAnalytics: {},
     // posthogAnalytics: {
     //   posthogProjectApiKey: '', // e.g. 123e4567-e89b-12d3-a456-426614174000
-    // },
-    // googleAnalytics: {
-    //   googleAnalyticsId: '', // e.g. G-XXXXXXX
     // },
   },
   newsletter: {

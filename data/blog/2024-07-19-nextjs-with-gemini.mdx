@@ -1,0 +1,36 @@
+---
+title: "프론트엔드 개발자가 Next.js로 알아보는 Gemini"
+tags: [developer, 개발, Gemini, Next.js]
+date: '2024-07-19'
+draft: false
+summary: Next.js 프레임워크를 기반으로하여서 @google/generative-ai 라이브러리를 활용하여 Gemini를 만들어보도록 하겠습니다.
+---
+
+# 1. Get API key
+
+[//]: # (![/assets/images/nextjs-with-gemini/01.png]&#40;/static/images/blog/nextjs-with-gemini/01.png&#41;)
+
+[gemini](https://gemini.google.com/app) 사이트에 접속해보면 아래와 같은 화면을 볼 수 있습니다.
+
+![/assets/images/nextjs-with-gemini/03.png](/static/images/blog/nextjs-with-gemini/03.png)
+
+그리고 다음에 보실 화면은 Next.js로 구현한 페이지입니다.
+
+![/assets/images/nextjs-with-gemini/02.png](/static/images/blog/nextjs-with-gemini/02.png)
+
+조금의 차이는 있을지몰라도 상당부분 비슷한형태로 구성된 부분을 볼 수 있습니다.<br/>
+실제로 프롬포트를 기반으로 답변을 준다거나 하는 동작원리도 동일하게 구현되어 있습니다.<br/>
+이 글을 통해서 어떻게 gemini를 Next.js 프레임워크와 연결할 수 있는지에 대해서 알아보는 시간을 가져보려고 합니다.<br/>
+우선 gemini를 사용하기 위해서는 API Key 발급 과정이 필요합니다.<br/>
+- https://aistudio.google.com/app/apikey
+
+1. "Create API Key" 버튼을 클릭합니다.
+![/assets/images/nextjs-with-gemini/04.png](/static/images/blog/nextjs-with-gemini/04.png)
+
+2. 최초 발급일 경우 "Create APi Key in new Project" 버튼을 클릭합니다. (최초가 아닐경우 프로젝트 생성 후 API Key 연결작업을 진행하면됩니다.)
+![/assets/images/nextjs-with-gemini/05.png](/static/images/blog/nextjs-with-gemini/05.png)
+
+3. 발급된 Key를 복사하여 따로 저장해둡니다.
+![/assets/images/nextjs-with-gemini/06.png](/static/images/blog/nextjs-with-gemini/06.png)
+
+# 2. Go to Next.js

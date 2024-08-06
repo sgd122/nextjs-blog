@@ -1,0 +1,582 @@
+---
+title: "NextAuth를 활용한 백엔드 서버와의 로그인 통신 구현 방법"
+tags: [developer, 개발, NextAuth, Next.js]
+date: '2024-08-05'
+draft: false
+summary: 이 블로그 글에서는 Next.js와 NextAuth를 활용하여 백엔드 서버와의 로그인 통신 기능을 구현하는 방법을 다룹니다. NextAuth를 사용하면 OAuth, JWT 등을 쉽게 설정할 수 있어 사용자 인증 및 세션 관리를 간편하게 할 수 있습니다. 백엔드 서버와의 안전한 통신을 설정하고, 로그인 및 인증 과정을 단계별로 설명합니다.
+---
+
+> 이 블로그 글에서는 Next.js와 NextAuth를 활용하여 백엔드 서버와의 로그인 통신 기능을 구현하는 방법을 다룹니다. NextAuth를 사용하면 OAuth, JWT 등을 쉽게 설정할 수 있어 사용자 인증 및 세션 관리를 간편하게 할 수 있습니다. 백엔드 서버와의 안전한 통신을 설정하고, 로그인 및 인증 과정을 단계별로 설명합니다.
+
+# NextAuth에 대해서
+
+> `v4` 버전을 기준으로 작성하였습니다. 최신버전(v5)의 경우 변경사항이 있으니 유의해주세요.
+> ex) unstable_update
+
+Next.js 프레임워크 환경에서 인증(Auth)을 간편하게 수행하기 위해 사용하는 오픈소스 라이브러리입니다.<br/>
+이번 글을 통해서 별도의 백엔드 서버와 Next.js 서버와의 로그인 통신을 NextAuth를 통해서 어떻게 제어하고 사용하는지에 대해서 같이 알아보려고 합니다.
+
+# 1. 공식문서 기반의 설치
+
+공식문서를 기반으로 설치를 진행한다면 아래와 같이 설정할 수 있습니다.
+
+```bash
+# v4 버전 기준이라 `@4`를 붙였습니다.
+yarn add next-auth@4
+```
+
+NextAuth 설정 파일을 만들어 인증 제공자를 설정합니다.
+
+```javascript
+// pages/api/auth/[...nextauth].js
+import NextAuth from "next-auth"
+import GithubProvider from "next-auth/providers/github"
+
+export const authOptions = {
+  // Configure one or more authentication providers
+  providers: [
+    GithubProvider({
+      clientId: process.env.GITHUB_ID,
+      clientSecret: process.env.GITHUB_SECRET,
+    }),
+    // ...add more providers here
+  ],
+}
+
+export default NextAuth(authOptions)
+````
+
+세션 데이터와 상태에 액세스하고 브라우저 탭과 창 간에 세션을 업데이트하고 동기화하기 위해 SessionProvider를 설정합니다.
+
+```javascript
+// pages/_app.jsx
+import { SessionProvider } from "next-auth/react"
+
+export default function App({
+  Component,
+  pageProps: { session, ...pageProps },
+}) {
+  return (
+    <SessionProvider session={session}>
+      <Component {...pageProps} />
+    </SessionProvider>
+  )
+}
+````
+
+이제 로그인 버튼을 만들어 사용자가 로그인하고 로그아웃할 수 있도록 합니다.
+
+```javascript
+// components/login-btn.jsx
+import { useSession, signIn, signOut } from "next-auth/react"
+
+export default function Component() {
+  const { data: session } = useSession()
+  if (session) {
+    return (
+      <>
+        Signed in as {session.user.email} <br />
+        <button onClick={() => signOut()}>Sign out</button>
+      </>
+    )
+  }
+  return (
+    <>
+      Not signed in <br />
+      <button onClick={() => signIn()}>Sign in</button>
+    </>
+  )
+}
+````
+
+위 코드에서 useSession 훅을 사용하여 현재 세션 상태를 가져오고, signIn 및 signOut 함수를 사용하여 로그인 및 로그아웃 기능을 구현합니다.
+
+
+# 2. 백엔드서버와의 통신기능 구현하기
+
+백엔드 서버와의 안전한 통신을 설정하기 위해 NextAuth의 콜백 함수를 활용할 수 있습니다. <br/>
+예를 들어, 사용자 로그인 시 콜백 함수 내에서 백엔드 서버의 로그인기능을 수행하고, <br/>
+여기서 발생한 JWT를 통해 유저 정보를 가져오는 API를 호출하여 인증을 처리할 수 있습니다. <br/>
+이 과정은 pages/api/auth/[...nextauth].js 파일의 콜백 함수에서 처리할 수 있습니다. <br/>
+
+## 1. 먼저 필요한 패키지와 설정을 불러옵니다.
+
+```typescript
+// pages/api/auth/[...nextauth].ts
+import { BASE_URL, VERSION } from '@/api/config';
+import { LOGIN_PROVIDER } from '@/constants/auth';
+import { IUser, UserStatus } from '@hotel/api/user';
+import { NextApiRequest, NextApiResponse } from 'next';
+import NextAuth from 'next-auth';
+import { JWT } from 'next-auth/jwt';
+import AppleProvider from 'next-auth/providers/apple';
+import CredentialsProvider from 'next-auth/providers/credentials';
+import GoogleProvider from 'next-auth/providers/google';
+import KakaoProvider from 'next-auth/providers/kakao';
+
+const BACKEND_API = `${BASE_URL}${VERSION['V2']}`;
+
+```
+
+## 2. CustomJWT 인터페이스를 정의하여 JWT 토큰에 사용자 정보를 추가할 수 있도록 합니다.
+
+```typescript
+interface CustomJWT extends JWT {
+  user: { id_token?: string; provider?: string } & IUser;
+}
+```
+
+## 3. 소셜 로그인 제공자의 프로필을 가져오는 함수 getSocialProviderProfile을 정의합니다.
+
+```typescript
+async function getSocialProviderProfile(token: CustomJWT, provider: string) {
+  const apiUrl = `${BACKEND_API}/login/social/callback/${provider}`;
+
+  const props =
+    provider === LOGIN_PROVIDER['APPLE']
+      ? {
+          social_token: token?.user?.id_token,
+          email: token.user?.email,
+        }
+      : { social_token: token?.accessToken };
+
+  const tokenResponse = await fetch(apiUrl, {
+    method: 'POST',
+    body: JSON.stringify(props),
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const tokenData = await tokenResponse.json();
+
+  if (tokenResponse.ok && tokenData) {
+    const userResponse = await fetch(`${BACKEND_API}/user`, {
+      method: 'POST',
+      body: undefined,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenData?.data.token?.plainTextToken}`,
+      },
+    });
+    const {
+      data: { user: userData },
+    }: UserStatus = await userResponse.json();
+
+    if (userResponse.ok && userData) {
+      return {
+        ...token,
+        user: {
+          id: userData.id,
+          name: userData.name,
+          nick_name: userData.nick_name,
+          email: userData.email,
+        },
+        accessToken: tokenData?.data.token?.plainTextToken,
+      };
+    }
+  }
+  return token;
+}
+```
+## 4. 다음으로, NextAuth의 설정을 정의합니다. 여기서 인증 제공자와 콜백 함수를 설정합니다.
+
+```typescript
+export default async function auth(req: NextApiRequest, res: NextApiResponse) {
+  return await NextAuth(req, res, {
+    // NOTE: jwt 사용을 위한 임의의 난수를 할당
+    secret: process.env.NEXTAUTH_SECRET,
+    // NOTE: 세션 전략을 jwt로 설정
+    session: { strategy: 'jwt' },
+    // NOTE: custom login page
+    pages: {
+      signIn: `/auth/login/email`,
+      error: `/auth/login/email`,
+    },
+    cookies: {
+      pkceCodeVerifier: {
+        name: 'next-auth.pkce.code_verifier',
+        options: {
+          httpOnly: true,
+          sameSite: 'none',
+          path: '/',
+          secure: true,
+        },
+      },
+    },
+    providers: [
+      AppleProvider({
+        clientId: process.env.NEXT_PUBLIC_APPLE_ID as string,
+        clientSecret: process.env.NEXT_PUBLIC_APPLE_CLIENT_SECRET as string,
+        async profile(profile, tokens) {
+          return {
+            ...profile,
+            id_token: tokens.id_token,
+            refresh_token: tokens.refresh_token,
+            id: profile.email,
+            provider: LOGIN_PROVIDER['APPLE'],
+          };
+        },
+      }),
+      KakaoProvider({
+        clientId: process.env.NEXT_PUBLIC_KAKAO_API_KEY as string,
+        clientSecret: process.env.NEXT_PUBLIC_KAKAO_SECRET as string,
+        async profile(profile) {
+          return {
+            ...profile,
+            provider: LOGIN_PROVIDER['KAKAO'],
+          };
+        },
+      }),
+      GoogleProvider({
+        clientId: process.env.NEXT_PUBLIC_GOOGLE_ID as string,
+        clientSecret: process.env.NEXT_PUBLIC_GOOGLE_SECRET as string,
+        async profile(profile) {
+          return {
+            ...profile,
+            id: LOGIN_PROVIDER['GOOGLE'],
+            provider: LOGIN_PROVIDER['GOOGLE'],
+          };
+        },
+      }),
+      CredentialsProvider({
+        id: LOGIN_PROVIDER['EMAIL'],
+        name: 'Credentials',
+        credentials: {
+          email: { label: 'email', type: 'text', placeholder: 'email' },
+          password: { label: 'password', type: 'password' },
+        },
+        async authorize(credentials): Promise<IUser | null> {
+          // 백엔드서버와의 로그인통신 기능구현
+          const tokenResponse = await fetch(`${BACKEND_API}/login`, {
+            method: 'POST',
+            body: JSON.stringify(credentials),
+            headers: { 'Content-Type': 'application/json' },
+          });
+          const token = await tokenResponse.json();
+          if (tokenResponse.ok && token) {
+            // 백엔드서버에서 유저정보 가져오기
+            const userResponse = await fetch(
+              `${BACKEND_API}/user`,
+              {
+                method: 'POST',
+                body: undefined,
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token?.data.token?.plainTextToken}`,
+                },
+              }
+            );
+            const {
+              data: { user },
+            }: UserStatus = await userResponse.json();
+
+            if (userResponse.ok && user) {
+              // 유저정보와 accessToken을 return
+              return {
+                id: user.id,
+                name: user.name,
+                nick_name: user.nick_name,
+                email: user.email,
+                accessToken: token?.data.token?.plainTextToken,
+              };
+            }
+          }
+
+          // Return null if user data could not be retrieved
+          return null;
+        },
+      }),
+    ],
+    callbacks: {
+      /**
+       * ANCHOR: JWT Callback
+       * 웹 토큰이 실행 혹은 업데이트될때마다 콜백이 실행
+       * 반환된 값은 암호화되어 쿠키에 저장됨
+       */
+      async jwt({ token, trigger, session, account, user }) {
+        // NOTE: 회원정보 업데이트
+        if (trigger === 'update') {
+          Object.keys(session).forEach(key => {
+            token.user[key] = session[key];
+          });
+        }
+
+        // SSO로그인에 대한 백엔드서버 통신기능 구현하기
+        const customToken = token as CustomJWT;
+        const provider = `${customToken?.user?.provider}`;
+        if (
+          provider === LOGIN_PROVIDER['KAKAO'] ||
+          provider === LOGIN_PROVIDER['APPLE'] ||
+          provider === LOGIN_PROVIDER['GOOGLE']
+        ) {
+          const result = await getSocialProviderProfile(customToken, provider);
+          return result;
+        } else {
+          if (account && user) {
+            token.accessToken = user.accessToken
+            return {
+              ...token,
+              user,
+            };
+          }
+        }
+        return token;
+      },
+
+      /**
+       * ANCHOR: Session Callback
+       * ClientSide에서 NextAuth에 세션을 체크할때마다 실행
+       * 반환된 값은 useSession을 통해 ClientSide에서 사용할 수 있음
+       * JWT 토큰의 정보를 Session에 유지 시킨다.
+       */
+      async session({ session, token }) {
+        if (token?.accessToken) {
+          session.accessToken = token.accessToken
+        }
+        session.user = token.user as IUser;
+        return session;
+      },
+    },
+    debug: false,
+  });
+}
+```
+
+## 5. 전체코드는 아래와 같습니다.
+
+```typescript
+// pages/api/auth/[...nextauth].ts
+import { BASE_URL, VERSION } from '@/api/config';
+import { LOGIN_PROVIDER } from '@/constants/auth';
+import { IUser, UserStatus } from '@hotel/api/user';
+import { NextApiRequest, NextApiResponse } from 'next';
+import NextAuth from 'next-auth';
+import { JWT } from 'next-auth/jwt';
+import AppleProvider from 'next-auth/providers/apple';
+import CredentialsProvider from 'next-auth/providers/credentials';
+import GoogleProvider from 'next-auth/providers/google';
+import KakaoProvider from 'next-auth/providers/kakao';
+
+const BACKEND_API = `${BASE_URL}${VERSION['V2']}`;
+
+interface CustomJWT extends JWT {
+  user: { id_token?: string; provider?: string } & IUser;
+}
+
+async function getSocialProviderProfile(token: CustomJWT, provider: string) {
+  const apiUrl = `${BACKEND_API}/login/social/callback/${provider}`;
+
+  const props =
+    provider === LOGIN_PROVIDER['APPLE']
+      ? {
+          social_token: token?.user?.id_token,
+          email: token.user?.email,
+        }
+      : { social_token: token?.accessToken };
+
+  const tokenResponse = await fetch(apiUrl, {
+    method: 'POST',
+    body: JSON.stringify(props),
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const tokenData = await tokenResponse.json();
+
+  if (tokenResponse.ok && tokenData) {
+    const userResponse = await fetch(`${BACKEND_API}/user`, {
+      method: 'POST',
+      body: undefined,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenData?.data.token?.plainTextToken}`,
+      },
+    });
+    const {
+      data: { user: userData },
+    }: UserStatus = await userResponse.json();
+
+    if (userResponse.ok && userData) {
+      return {
+        ...token,
+        user: {
+          id: userData.id,
+          name: userData.name,
+          nick_name: userData.nick_name,
+          email: userData.email,
+        },
+        accessToken: tokenData?.data.token?.plainTextToken,
+      };
+    }
+  }
+  return token;
+}
+
+export default async function auth(req: NextApiRequest, res: NextApiResponse) {
+  return await NextAuth(req, res, {
+    // NOTE: jwt 사용을 위한 임의의 난수를 할당
+    secret: process.env.NEXTAUTH_SECRET,
+    // NOTE: 세션 전략을 jwt로 설정
+    session: { strategy: 'jwt' },
+    // NOTE: custom login page
+    pages: {
+      signIn: `/auth/login/email`,
+      error: `/auth/login/email`,
+    },
+    cookies: {
+      pkceCodeVerifier: {
+        name: 'next-auth.pkce.code_verifier',
+        options: {
+          httpOnly: true,
+          sameSite: 'none',
+          path: '/',
+          secure: true,
+        },
+      },
+    },
+    providers: [
+      AppleProvider({
+        clientId: process.env.NEXT_PUBLIC_APPLE_ID as string,
+        clientSecret: process.env.NEXT_PUBLIC_APPLE_CLIENT_SECRET as string,
+        async profile(profile, tokens) {
+          return {
+            ...profile,
+            id_token: tokens.id_token,
+            refresh_token: tokens.refresh_token,
+            id: profile.email,
+            provider: LOGIN_PROVIDER['APPLE'],
+          };
+        },
+      }),
+      KakaoProvider({
+        clientId: process.env.NEXT_PUBLIC_KAKAO_API_KEY as string,
+        clientSecret: process.env.NEXT_PUBLIC_KAKAO_SECRET as string,
+        async profile(profile) {
+          return {
+            ...profile,
+            provider: LOGIN_PROVIDER['KAKAO'],
+          };
+        },
+      }),
+      GoogleProvider({
+        clientId: process.env.NEXT_PUBLIC_GOOGLE_ID as string,
+        clientSecret: process.env.NEXT_PUBLIC_GOOGLE_SECRET as string,
+        async profile(profile) {
+          return {
+            ...profile,
+            id: LOGIN_PROVIDER['GOOGLE'],
+            provider: LOGIN_PROVIDER['GOOGLE'],
+          };
+        },
+      }),
+      CredentialsProvider({
+        id: LOGIN_PROVIDER['EMAIL'],
+        name: 'Credentials',
+        credentials: {
+          email: { label: 'email', type: 'text', placeholder: 'email' },
+          password: { label: 'password', type: 'password' },
+        },
+        async authorize(credentials): Promise<IUser | null> {
+          // 백엔드서버와의 로그인통신 기능구현
+          const tokenResponse = await fetch(`${BACKEND_API}/login`, {
+            method: 'POST',
+            body: JSON.stringify(credentials),
+            headers: { 'Content-Type': 'application/json' },
+          });
+          const token = await tokenResponse.json();
+          if (tokenResponse.ok && token) {
+            // 백엔드서버에서 유저정보 가져오기
+            const userResponse = await fetch(
+              `${BACKEND_API}/user`,
+              {
+                method: 'POST',
+                body: undefined,
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token?.data.token?.plainTextToken}`,
+                },
+              }
+            );
+            const {
+              data: { user },
+            }: UserStatus = await userResponse.json();
+
+            if (userResponse.ok && user) {
+              // 유저정보와 accessToken을 return
+              return {
+                id: user.id,
+                name: user.name,
+                nick_name: user.nick_name,
+                email: user.email,
+                accessToken: token?.data.token?.plainTextToken,
+              };
+            }
+          }
+
+          // Return null if user data could not be retrieved
+          return null;
+        },
+      }),
+    ],
+    callbacks: {
+      /**
+       * ANCHOR: JWT Callback
+       * 웹 토큰이 실행 혹은 업데이트될때마다 콜백이 실행
+       * 반환된 값은 암호화되어 쿠키에 저장됨
+       */
+      async jwt({ token, trigger, session, account, user }) {
+        // NOTE: 회원정보 업데이트
+        if (trigger === 'update') {
+          Object.keys(session).forEach(key => {
+            token.user[key] = session[key];
+          });
+        }
+
+        // SSO로그인에 대한 백엔드서버 통신기능 구현하기
+        const customToken = token as CustomJWT;
+        const provider = `${customToken?.user?.provider}`;
+        if (
+          provider === LOGIN_PROVIDER['KAKAO'] ||
+          provider === LOGIN_PROVIDER['APPLE'] ||
+          provider === LOGIN_PROVIDER['GOOGLE']
+        ) {
+          const result = await getSocialProviderProfile(customToken, provider);
+          return result;
+        } else {
+          if (account && user) {
+            token.accessToken = user.accessToken
+            return {
+              ...token,
+              user,
+            };
+          }
+        }
+        return token;
+      },
+
+      /**
+       * ANCHOR: Session Callback
+       * ClientSide에서 NextAuth에 세션을 체크할때마다 실행
+       * 반환된 값은 useSession을 통해 ClientSide에서 사용할 수 있음
+       * JWT 토큰의 정보를 Session에 유지 시킨다.
+       */
+      async session({ session, token }) {
+        if (token?.accessToken) {
+          session.accessToken = token.accessToken
+        }
+        session.user = token.user as IUser;
+        return session;
+      },
+    },
+    debug: false,
+  });
+}
+```
+
+## 6. 유저 프로필 업데이트가 필요한 경우
+
+```typescript
+// hooks/update.tsx
+const useUpdate = () => {
+  const { update } = getSession();
+  update({ name: 'change name' })
+}
+```
+
+이와 같이 클라이언트에서 `update`를 할 경우 `trigger === 'update'` 부분에서 확인하여 프로필 수정이 가능해집니다.
